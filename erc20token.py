@@ -1,18 +1,12 @@
-import configparser
-import json
-
-from web3 import Web3, HTTPProvider
+from web3 import Web3
 from web3.eth import Contract
 from web3.exceptions import ContractLogicError
 
 from typing import Union
+from web3.types import Wei
 from types_eth import AddressLike, ChecksumAddress
-
-config = configparser.ConfigParser()
-config.read('.cfg')
-
-PROVIDER = config["WEB3"]["PROVIDER"]
-w3 = Web3(HTTPProvider(PROVIDER))
+from util import _load_abi
+from exceptions import Web3InstanceRequired
 
 
 class ERC20Token:
@@ -23,23 +17,35 @@ class ERC20Token:
     __symbol: str = None
     __name: str = None
     __decimals: int = None
-    __totalSupply: int = None
+    __totalSupply: Wei = None
+
+    # Instance of Web3 to interact with contracts
+    w3: Web3 = None
 
     # Instance of ETH Contract for Web3 calls
-    contract: Contract
+    contract: Contract = None
 
     # Token conctructor with Contract instance
-    def __init__(self, contractAddress: Union[AddressLike, str]):
+    def __init__(self, contractAddress: Union[AddressLike, str], w3: Web3):
         if not Web3.isChecksumAddress(contractAddress):
             contractAddress = Web3.toChecksumAddress(contractAddress)
 
-        # TODO: Is it good to read file with ABI in constructor
-        # Read ERC20 ABI from file
-        with open('abi/erc20.json') as f:
-            ERC20_ABI = json.load(f)
+        if w3:
+            self.w3 = w3
+        else:
+            raise Web3InstanceRequired
 
-        self.contract = w3.eth.contract(address=contractAddress, abi=ERC20_ABI)
+        # Read ERC20 ABI from file
+        abi = _load_abi('erc20')
+
+        # Setting an instance of w3.eth.contract
+        self.contract: Contract = w3.eth.contract(address=contractAddress, abi=abi)
+
+        # Setting contract address for Class attribute __contractAddress
         self.__contractAddress = contractAddress
+
+    def __repr__(self) -> str:
+        return f'ERC20 Object: {self.__contractAddress}, {self.__symbol}, {self.__name}, {self.__decimals}, {self.__totalSupply}'
 
     # Get contract of the token
     @property
@@ -87,7 +93,7 @@ class ERC20Token:
 
     # Get totalSupply of the token by interacting contract/reading value
     @property
-    def totalSupply(self) -> int:
+    def totalSupply(self) -> Wei:
         if not self.__totalSupply:
             try:
                 totalSupply = self.contract.functions.totalSupply().call()
@@ -98,14 +104,15 @@ class ERC20Token:
             return totalSupply
         return self.__totalSupply
 
+    def setAllOptions(self):
+        if not self.__symbol:
+            self.__symbol = self.symbol
 
-# Some tests
-# Sensorium SENSO - 0xC19B6A4Ac7C7Cc24459F08984Bbd09664af17bD1 - doesn't return Decimals due contract specifics
-# Uniswap Token - 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984
-Token_UNI = ERC20Token(contractAddress='0x1f9840a85d5af5bf1d1762f925bdaddc4201f984')
+        if not self.__name:
+            self.__name = self.name
 
-print(Token_UNI.contractAddress)
-print(Token_UNI.name)
-print(Token_UNI.symbol)
-print(Token_UNI.decimals)
-print(Token_UNI.totalSupply)
+        if not self.__decimals:
+            self.__decimals = self.decimals
+
+        if not self.__totalSupply:
+            self.__totalSupply = self.totalSupply
