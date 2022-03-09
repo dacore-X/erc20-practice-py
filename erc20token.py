@@ -100,7 +100,12 @@ class ERC20Token:
             except ContractLogicError as e:
                 raise e
 
+            if not self.__decimals:
+                self.__decimals = self.decimals
+
+            totalSupply = totalSupply / (10 ** self.__decimals)
             self.__totalSupply = totalSupply
+
             return totalSupply
         return self.__totalSupply
 
