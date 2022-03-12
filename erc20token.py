@@ -1,11 +1,14 @@
+import time
+
 from web3 import Web3
+from web3.contract import ContractFunction
 from web3.eth import Contract
 from web3.exceptions import ContractLogicError
 
-from typing import Union
-from web3.types import Wei
+from typing import Union, Optional
 from types_eth import AddressLike, ChecksumAddress
-from util import _load_abi
+
+from util import _load_abi, _load_cfg
 from exceptions import Web3InstanceRequired
 
 
@@ -17,7 +20,7 @@ class ERC20Token:
     __symbol: str = None
     __name: str = None
     __decimals: int = None
-    __totalSupply: Wei = None
+    __totalSupply: float = None
 
     # Instance of Web3 to interact with contracts
     w3: Web3 = None
@@ -93,7 +96,7 @@ class ERC20Token:
 
     # Get totalSupply of the token by interacting contract/reading value
     @property
-    def totalSupply(self) -> Wei:
+    def totalSupply(self) -> float:
         if not self.__totalSupply:
             try:
                 totalSupply = self.contract.functions.totalSupply().call()
@@ -109,7 +112,8 @@ class ERC20Token:
             return totalSupply
         return self.__totalSupply
 
-    def setAllOptions(self):
+    # Setting all Call values by interacting contract
+    def set_all_options(self):
         if not self.__symbol:
             self.__symbol = self.symbol
 
@@ -121,3 +125,74 @@ class ERC20Token:
 
         if not self.__totalSupply:
             self.__totalSupply = self.totalSupply
+
+    # ****************** Approve function call ******************
+    def _is_approved(self, account: AddressLike, spender: AddressLike) -> bool:
+        isApproved: bool = False
+
+        amountAllowed: int = self.contract.functions.allowance(account, spender).call()
+        if amountAllowed > 0:
+            isApproved = True
+
+        return isApproved
+
+    def approve(self, account: AddressLike, spender: AddressLike) -> bool:
+        if self._is_approved(account, spender):
+            print(f'{"-"*30}\n'
+                  f'✔ [APPROVED] Token: {self.contractAddress}\n'
+                  f'From: {account}\n'
+                  f'For: {spender}\n'
+                  f'{"-"*30}')
+
+            return True
+
+        max_approve_amount = Web3.toWei(2**64-1, 'ether')
+        nonce = self.w3.eth.getTransactionCount(account)
+
+        function: ContractFunction = self.contract.functions.approve(spender, max_approve_amount)
+
+        tx = function.buildTransaction(
+            {
+                'chainId': 42,
+                'from': account,
+                'nonce': nonce
+            }
+        )
+
+        pvkey = _load_cfg()['WEB3']['PVKEY']
+        signed_tx = self.w3.eth.account.signTransaction(tx, pvkey)
+
+
+        tx_hash = self.w3.eth.sendRawTransaction(signed_tx.rawTransaction)
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, 30000)
+
+        if receipt['status'] == 1:
+
+            # Maybe using in the future
+            # resp = {
+            #     'tx_hash': tx_hash.hex(),
+            #     'to': receipt['to'],
+            #     'gasUsed': receipt['gasUsed']
+            # }
+
+            # Console logs
+            print(f"{'-'*30}\n"
+                  f"✔ [APPROVED] Token: {self.contractAddress}\n"
+                  f"tx_hash: {tx_hash.hex()}\n"
+                  f"to: {receipt['to']}\n"
+                  f"gasUsed: {receipt['gasUsed']}\n"
+                  f"{'-'*30}")
+
+            # Wait some time cause of
+            # ValueError: {'code': -32010, 'message': 'Transaction nonce is too low. Try incrementing the nonce.'}
+            # calling this method one after the other
+            # TODO: How to fix it correctly
+            time.sleep(1)
+            return True
+
+        else:
+            print(f"{'-'*30}\n"
+                  f"✖ [ERROR APPROVING] Token: {self.contractAddress}\n"
+                  f"tx_hash: {tx_hash.hex()}\n"
+                  f"{'-'*30}")
+            return False
