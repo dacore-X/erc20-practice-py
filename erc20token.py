@@ -196,3 +196,56 @@ class ERC20Token:
                   f"tx_hash: {tx_hash.hex()}\n"
                   f"{'-'*30}")
             return False
+        
+    # ****************** Tranfer function call ******************
+    def transfer(self, to: ChecksumAddress, amount: float) -> bool:
+
+        if not Web3.isChecksumAddress(to):
+            to = Web3.toChecksumAddress(to)
+
+        # Load pvkey from .cfg file
+        pvkey = _load_cfg()['WEB3']['PVKEY']
+        
+        account = self.w3.eth.account.privateKeyToAccount(pvkey)
+        account_address = account.address
+        nonce = self.w3.eth.getTransactionCount(account_address)
+
+        amount: int = int(amount * 10 ** self.decimals)
+
+        function: ContractFunction = self.contract.functions.transfer(to, amount)
+
+        # Estimate gas logic
+        estimate_gas: int = function.estimateGas({'from': account_address}) + 3000  # extra 3k gas
+
+        tx = function.buildTransaction(
+            {
+                'chainId': 42,
+                'from': account_address,
+                'nonce': nonce,
+                'gas': estimate_gas
+            }
+        )
+
+        signed_tx = self.w3.eth.account.signTransaction(tx, pvkey)
+
+        tx_hash = self.w3.eth.sendRawTransaction(signed_tx.rawTransaction)
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, 30000)
+
+        if receipt['status'] == 1:
+
+            # Console logs
+            print(f"{'-' * 30}\n"
+                  f"✔ [SENT] Token: {self.contractAddress}\n"
+                  f"tx_hash: {tx_hash.hex()}\n"
+                  f"gasUsed: {receipt['gasUsed']}\n"
+                  f"{'-' * 30}")
+
+            return True
+
+        else:
+            print(f"{'-' * 30}\n"
+                  f"✖ [ERROR TRANSFER] Token: {self.contractAddress}\n"
+                  f"tx_hash: {tx_hash.hex()}\n"
+                  f"{receipt}\n"
+                  f"{'-' * 30}")
+            return False
